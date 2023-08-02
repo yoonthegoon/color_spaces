@@ -1,3 +1,4 @@
+import math
 from abc import ABC, abstractclassmethod, abstractmethod, abstractproperty
 
 D65 = 0.95047, 1.00000, 1.08883
@@ -5,14 +6,6 @@ D65 = 0.95047, 1.00000, 1.08883
 
 class BaseColorSpace(ABC):
     """Base class for color spaces."""
-
-    @abstractmethod
-    def __init__(self, *args, **kwargs) -> None:
-        pass
-
-    @abstractmethod
-    def __new__(cls, *args, **kwargs) -> "BaseColorSpace":
-        pass
 
     @abstractmethod
     def __repr__(self) -> str:
@@ -54,8 +47,8 @@ class XYZ(BaseColorSpace):
 
     @classmethod
     def from_Luv(cls, Luv: "Luv") -> "XYZ":
-        u = Luv.u / (13 * Luv.L) + cls.u(*D65)
-        v = Luv.v / (13 * Luv.L) + cls.v(*D65)
+        u = Luv.u / (13 * Luv.L) + Luv.u_(*D65)
+        v = Luv.v / (13 * Luv.L) + Luv.v_(*D65)
 
         if Luv.L > 8:
             Y = D65[1] * ((Luv.L + 16) / 116) ** 3
@@ -69,7 +62,7 @@ class XYZ(BaseColorSpace):
 
     @classmethod
     def from_sRGB(cls, sRGB: "sRGB") -> "XYZ":
-        R, G, B = sRGB.linear[:]
+        R, G, B = sRGB.linear
 
         X = 0.4124564 * R + 0.3575761 * G + 0.1804375 * B
         Y = 0.2126729 * R + 0.7151522 * G + 0.0721750 * B
@@ -130,6 +123,14 @@ class Lab(ColorSpace):
         b = 200 * (cls._f(XYZ.Y / D65[1]) - cls._f(XYZ.Z / D65[2]))
         return cls(L, a, b)
 
+    @classmethod
+    def from_LCh(cls, LCh: "LCh") -> "Lab":
+        return cls(
+            LCh.L,
+            LCh.C * math.cos(math.radians(LCh.h)),
+            LCh.C * math.sin(math.radians(LCh.h)),
+        )
+
     @staticmethod
     def _f(t: float) -> float:
         if t > (6 / 29) ** 3:
@@ -141,17 +142,21 @@ class Lab(ColorSpace):
     def XYZ(self) -> XYZ:
         return XYZ.from_Lab(self)
 
+    @property
+    def LCh(self) -> "LCh":
+        return LCh.from_Lab(self)
+
     def f(self, t: float) -> float:
         if t > 6 / 29:
             return t**3
 
         return (3 * (6 / 29) ** 2) * (t - 4 / 29)
 
-    def __repr__(self) -> str:
-        return f"Lab({self.L}, {self.a}, {self.b})"
-
     def __getitem__(self, key: int) -> float:
         return (self.L, self.a, self.b)[key]
+
+    def __repr__(self) -> str:
+        return f"Lab({self.L}, {self.a}, {self.b})"
 
 
 class Luv(ColorSpace):
@@ -176,21 +181,42 @@ class Luv(ColorSpace):
         else:
             L = (29 / 3) ** 3 * (XYZ.Y / D65[1])
 
-        u = 13 * L * (cls.u(XYZ[:]) - cls.u(*D65))
-        v = 13 * L * (cls.v(XYZ[:]) - cls.v(*D65))
+        u = 13 * L * (cls.u_(*XYZ) - cls.u_(*D65))
+        v = 13 * L * (cls.v_(*XYZ) - cls.v_(*D65))
         return cls(L, u, v)
 
+    @classmethod
+    def from_LCh(cls, LCh: "LCh") -> "Luv":
+        return cls(
+            LCh.L,
+            LCh.C * math.cos(math.radians(LCh.h)),
+            LCh.C * math.sin(math.radians(LCh.h)),
+        )
+
     @staticmethod
-    def u(X: float, Y: float, Z: float) -> float:
+    def u_(X: float, Y: float, Z: float) -> float:
+        if X + Y + Z == 0:
+            return 0
+        
         return 4 * X / (X + 15 * Y + 3 * Z)
 
     @staticmethod
-    def v(X: float, Y: float, Z: float) -> float:
+    def v_(X: float, Y: float, Z: float) -> float:
+        if X + Y + Z == 0:
+            return 0
+        
         return 9 * Y / (X + 15 * Y + 3 * Z)
 
     @property
     def XYZ(self) -> XYZ:
         return XYZ.from_Luv(self)
+
+    @property
+    def LCh(self) -> "LCh":
+        return LCh.from_Luv(self)
+
+    def __getitem__(self, key: int) -> float:
+        return (self.L, self.u, self.v)[key]
 
     def __repr__(self) -> str:
         return f"Luv({self.L}, {self.u}, {self.v})"
@@ -216,6 +242,11 @@ class sRGB(ColorSpace):
         return cls(R, G, B)._gamma_expanded()
 
     @property
+    def hex(self) -> str:
+        R, G, B = (int(255 * i) for i in self)
+        return f"#{R:02x}{G:02x}{B:02x}"
+
+    @property
     def linear(self) -> "sRGB":
         return self._gamma_corrected()
 
@@ -223,14 +254,33 @@ class sRGB(ColorSpace):
     def XYZ(self) -> XYZ:
         return XYZ.from_sRGB(self)
 
+    def __getitem__(self, key: int) -> float:
+        return (self.R, self.G, self.B)[key]
+
     def __repr__(self) -> str:
         return f"sRGB({self.R}, {self.G}, {self.B})"
 
     def _gamma_corrected(self) -> "sRGB":
-        raise NotImplementedError  # TODO: Implement gamma correction
+        RGB = []
+        for c in self:
+            if c <= 0.04045:
+                RGB.append(c / 12.92)
+
+            else:
+                RGB.append(((c + 0.055) / 1.055) ** 2.4)
+
+        return sRGB(*RGB)
 
     def _gamma_expanded(self) -> "sRGB":
-        raise NotImplementedError  # TODO: Implement gamma expansion
+        RGB = []
+        for c in self:
+            if c <= 0.0031308:
+                RGB.append(12.92 * c)
+
+            else:
+                RGB.append(1.055 * c ** (1 / 2.4) - 0.055)
+
+        return sRGB(*RGB)
 
 
 class xyY(ColorSpace):
@@ -260,3 +310,75 @@ class xyY(ColorSpace):
 
     def __repr__(self) -> str:
         return f"xyY({self.x}, {self.y}, {self.Y})"
+
+
+class LCh(BaseColorSpace):
+    def __init__(self, L: float, C: float, h: float) -> None:
+        self.L = L
+        self.C = C
+        self.h = h
+
+    def __new__(cls, L: float, C: float, h: float) -> "LCh":
+        if not 0 <= L <= 100:
+            raise ValueError("L must be between 0 and 100.")
+
+        # TODO: Check C
+
+        if not 0 <= h <= 360:
+            raise ValueError("h must be between 0 and 360.")
+
+        return super().__new__(cls)
+
+    @classmethod
+    def _from_L__(cls, L__: Lab or Luv) -> "LCh":
+        L, x, y = L__
+        C = math.sqrt(x**2 + y**2)
+        h = math.degrees(math.atan2(y, x))
+        if h < 0:
+            h += 360
+
+        return cls(L, C, h)
+
+    @classmethod
+    def from_Lab(cls, Lab: Lab) -> "LCh":
+        return cls._from_L__(Lab)
+
+    @classmethod
+    def from_Luv(cls, Luv: Luv) -> "LCh":
+        return cls._from_L__(Luv)
+
+    @property
+    def Lab(self) -> Lab:
+        return Lab.from_LCh(self)
+
+    @property
+    def Luv(self) -> Luv:
+        return Luv.from_LCh(self)
+    
+    def __getitem__(self, key: int) -> float:
+        return (self.L, self.C, self.h)[key]
+
+    def __repr__(self) -> str:
+        return f"LCh({self.L}, {self.C}, {self.h})"
+
+    def _sRGB(self, color_space: Lab or Luv, C: float) -> sRGB:
+        L, _, h = self
+        if C < 0:
+            C = 0
+        
+        if self.L <= 0:
+            return sRGB(0, 0, 0)
+        
+        if self.L >= 100:
+            return sRGB(1, 1, 1)
+        
+        return color_space.from_LCh(LCh(L, C, h)).XYZ.sRGB
+
+    def sRGB(self, color_space: Lab or Luv) -> sRGB:
+        C = self.C
+        while True:
+            try:
+                return self._sRGB(color_space, C)
+            except ValueError:
+                # C -= 1e-3
+                C -= 1
