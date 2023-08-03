@@ -40,9 +40,9 @@ class XYZ(BaseColorSpace):
 
     @classmethod
     def from_Lab(cls, Lab: "Lab") -> "XYZ":
-        X = D65[0] * cls.f((Lab.L + 16) / 116 + Lab.a / 500)
-        Y = D65[1] * cls.f((Lab.L + 16) / 116)
-        Z = D65[2] * cls.f((Lab.L + 16) / 116 - Lab.b / 200)
+        X = D65[0] * Lab.f((Lab.L + 16) / 116 + Lab.a / 500)
+        Y = D65[1] * Lab.f((Lab.L + 16) / 116)
+        Z = D65[2] * Lab.f((Lab.L + 16) / 116 - Lab.b / 200)
         return cls(X, Y, Z)
 
     @classmethod
@@ -55,6 +55,8 @@ class XYZ(BaseColorSpace):
 
         else:
             Y = D65[1] * Luv.L * ((3 / 29) ** 3)
+
+        Y = D65[1] * Luv.L / 100  # TODO: remove this line
 
         X = Y * 9 * u / (4 * v)
         Z = Y * (12 - 3 * u - 20 * v) / (4 * v)
@@ -166,7 +168,7 @@ class Luv(ColorSpace):
         self.v = v
 
     def __new__(cls, L: float, u: float, v: float) -> "Luv":
-        if not 0 <= L <= 100:
+        if not 0 <= L:  # <= 100
             raise ValueError("L must be between 0 and 100.")
 
         # TODO: Check u and v values
@@ -180,6 +182,8 @@ class Luv(ColorSpace):
 
         else:
             L = (29 / 3) ** 3 * (XYZ.Y / D65[1])
+
+        L = 100 * XYZ.Y / D65[1]  # TODO: remove this line
 
         u = 13 * L * (cls.u_(*XYZ) - cls.u_(*D65))
         v = 13 * L * (cls.v_(*XYZ) - cls.v_(*D65))
@@ -197,14 +201,14 @@ class Luv(ColorSpace):
     def u_(X: float, Y: float, Z: float) -> float:
         if X + Y + Z == 0:
             return 0
-        
+
         return 4 * X / (X + 15 * Y + 3 * Z)
 
     @staticmethod
     def v_(X: float, Y: float, Z: float) -> float:
         if X + Y + Z == 0:
             return 0
-        
+
         return 9 * Y / (X + 15 * Y + 3 * Z)
 
     @property
@@ -243,7 +247,7 @@ class sRGB(ColorSpace):
 
     @property
     def hex(self) -> str:
-        R, G, B = (int(255 * i) for i in self)
+        R, G, B = (int(255 * i + 0.5) for i in self)
         return f"#{R:02x}{G:02x}{B:02x}"
 
     @property
@@ -319,7 +323,7 @@ class LCh(BaseColorSpace):
         self.h = h
 
     def __new__(cls, L: float, C: float, h: float) -> "LCh":
-        if not 0 <= L <= 100:
+        if not 0 <= L:  # <= 100
             raise ValueError("L must be between 0 and 100.")
 
         # TODO: Check C
@@ -354,7 +358,7 @@ class LCh(BaseColorSpace):
     @property
     def Luv(self) -> Luv:
         return Luv.from_LCh(self)
-    
+
     def __getitem__(self, key: int) -> float:
         return (self.L, self.C, self.h)[key]
 
@@ -365,20 +369,19 @@ class LCh(BaseColorSpace):
         L, _, h = self
         if C < 0:
             C = 0
-        
+
         if self.L <= 0:
             return sRGB(0, 0, 0)
-        
+
         if self.L >= 100:
             return sRGB(1, 1, 1)
-        
+
         return color_space.from_LCh(LCh(L, C, h)).XYZ.sRGB
 
-    def sRGB(self, color_space: Lab or Luv) -> sRGB:
+    def sRGB(self, color_space: Lab or Luv, step: float = 1e-3) -> sRGB:
         C = self.C
         while True:
             try:
                 return self._sRGB(color_space, C)
             except ValueError:
-                # C -= 1e-3
-                C -= 1
+                C -= step
