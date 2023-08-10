@@ -56,7 +56,7 @@ class XYZ(BaseColorSpace):
         else:
             Y = D65[1] * Luv.L * ((3 / 29) ** 3)
 
-        Y = D65[1] * Luv.L / 100  # TODO: remove this line
+        # Y = D65[1] * Luv.L / 100  # TODO: remove this line
 
         X = Y * 9 * u / (4 * v)
         Z = Y * (12 - 3 * u - 20 * v) / (4 * v)
@@ -183,7 +183,7 @@ class Luv(ColorSpace):
         else:
             L = (29 / 3) ** 3 * (XYZ.Y / D65[1])
 
-        L = 100 * XYZ.Y / D65[1]  # TODO: remove this line
+        # L = 100 * XYZ.Y / D65[1]  # TODO: remove this line
 
         u = 13 * L * (cls.u_(*XYZ) - cls.u_(*D65))
         v = 13 * L * (cls.v_(*XYZ) - cls.v_(*D65))
