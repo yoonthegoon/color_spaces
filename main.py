@@ -4,7 +4,7 @@ from color_spaces.core import XYZ, LCh, Luv, sRGB
 def ansi(base_C: float, base_h: float, max_C=120):
     def middle_lightness(l: float, d: float):
         return ((l + 0.05) * (d + 0.05)) ** 0.5 - 0.05
-    
+
     def LCh_base(L: float):
         return LCh(L, base_C, base_h).sRGB(Luv)
 
@@ -16,9 +16,9 @@ def ansi(base_C: float, base_h: float, max_C=120):
     white = (normal + 0.05) * 3 - 0.05
     dim = middle_lightness(normal, black)
     bright = middle_lightness(normal, white)
-    
+
     black, dim, normal, bright, white = map(
-        lambda x: XYZ(0.5, x, 0.5).Luv.LCh.L, (black, dim, normal, bright, white)
+        lambda x: XYZ(0, x, 0).Luv.LCh.L, (black, dim, normal, bright, white)
     )
 
     ansi_colors = {
@@ -46,6 +46,8 @@ def main():
     base = sRGB(
         *(1 - c for c in sRGB(0.2126729, 0.7151522, 0.0721750)._gamma_expanded())
     )
+    print(base.hex)
+    print(base.XYZ.Luv.LCh)
     for name, color in ansi(15, base.XYZ.Luv.LCh.h).items():
         print(f"{color.hex} {name}")
 
